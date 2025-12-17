@@ -1,104 +1,169 @@
-<script type="module">
-    import { db, doc, updateDoc, onSnapshot, getDoc } from './firebase-config.js';
-    import { bancoPreguntas } from './preguntas.js';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Pareja - En Vivo</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
 
-    document.addEventListener('DOMContentLoaded', () => {
-        const rol = localStorage.getItem('miRol'); 
-        const salaActual = localStorage.getItem('salaActual'); 
-        const otroRol = rol === 'jugador1' ? 'jugador2' : 'jugador1';
+    <div class="dashboard-container" style="max-width: 500px;">
         
-        if (!rol || !salaActual) {
-            window.location.href = 'index.html';
-            return;
-        }
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <button onclick="window.salir()" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">
+                <i class="fa-solid fa-house"></i>
+            </button>
+            <h2 id="titulo-modo" style="margin:0; font-size: 1.2rem;">Cargando...</h2>
+            <div style="width: 24px;"></div>
+        </div>
+
+        <div id="pantalla-seleccion" class="oculto">
+            <p style="margin-bottom: 20px;">Selecciona el nivel de intensidad para hoy:</p>
+            <div class="menu-grid">
+                <div class="card-menu" onclick="window.solicitarModo('tranquilo')">
+                    <i class="fa-solid fa-leaf" style="color: #78ffd6;"></i>
+                    <span>Tranquilo</span>
+                </div>
+                <div class="card-menu" onclick="window.solicitarModo('profundo')">
+                    <i class="fa-solid fa-heart" style="color: #ff758c;"></i>
+                    <span>Profundo</span>
+                </div>
+                <div class="card-menu" onclick="window.solicitarModo('hot')">
+                    <i class="fa-solid fa-fire" style="color: #ffaa00;"></i>
+                    <span>Hot</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="pantalla-juego" class="oculto">
+            <div class="barra-progreso">
+                <div id="progreso-relleno" style="width: 0%; height: 100%; background: #78ffd6; transition: 0.5s;"></div>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px 0;">
+                <p id="txt-pregunta" style="font-size: 1.1rem; line-height: 1.5; font-weight: 600;"></p>
+            </div>
+
+            <div id="area-respuesta">
+                <textarea id="mi-respuesta" class="input-codigo" style="height: 100px; padding: 10px; margin-bottom: 10px;" placeholder="Escribe tu respuesta aquí con amor..."></textarea>
+                <button class="btn-accion" onclick="window.enviarRespuesta()">Enviar mi respuesta</button>
+            </div>
+
+            <div id="mensaje-espera" class="oculto" style="padding: 20px; text-align: center;">
+                <div class="spinner"></div>
+                <p>Respuesta enviada. Esperando a tu pareja...</p>
+            </div>
+
+            <div id="ver-respuestas" class="oculto">
+                <p style="text-align: left; font-size: 0.9rem; opacity: 0.8;">Tu pareja respondió:</p>
+                <div id="txt-respuesta-partner" style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 10px 0; text-align: left; font-style: italic;"></div>
+                <button class="btn-accion" onclick="window.siguientePregunta()" style="background: #78ffd6; color: #333;">Siguiente Pregunta</button>
+            </div>
+        </div>
+
+        <div id="msg-esperando-confirmacion" class="oculto" style="padding: 20px;">
+            <div class="spinner"></div>
+            <p>Esperando que tu pareja acepte la invitación...</p>
+        </div>
+
+    </div>
+
+    <div id="modal-invitacion" class="oculto login-container" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; width: 85%;">
+        <h3>¡Invitación! 💌</h3>
+        <p>Tu pareja quiere jugar en modo: <br><b id="txt-modo-invitacion" style="color: #ff758c; font-size: 1.4rem;"></b></p>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button class="btn-accion" onclick="window.responderInvitacion(true)">Aceptar</button>
+            <button class="btn-accion" onclick="window.responderInvitacion(false)" style="background: #888;">No ahora</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, doc, updateDoc, onSnapshot, getDoc } from './firebase-config.js';
+        import { bancoPreguntas } from './preguntas.js';
+
+        // ELEMENTOS DEL DOM
+        const pantallas = {
+            seleccion: document.getElementById('pantalla-seleccion'),
+            juego: document.getElementById('pantalla-juego'),
+            invitacion: document.getElementById('modal-invitacion'),
+            esperaConfirmacion: document.getElementById('msg-esperando-confirmacion'),
+            areaRespuesta: document.getElementById('area-respuesta'),
+            mensajeEsperaPareja: document.getElementById('mensaje-espera'),
+            verResultados: document.getElementById('ver-respuestas')
+        };
+
+        const rol = localStorage.getItem('miRol');
+        const salaActual = localStorage.getItem('salaActual');
+        const otroRol = rol === 'jugador1' ? 'jugador2' : 'jugador1';
+
+        if (!rol || !salaActual) window.location.href = 'index.html';
 
         const partidaRef = doc(db, "salas", salaActual);
-        const preguntas = bancoPreguntas;
 
+        // --- ESCUCHAR CAMBIOS ---
         onSnapshot(partidaRef, (docSnap) => {
             if (docSnap.exists()) {
                 gestionarEstado(docSnap.data());
-            } else {
-                window.location.href = 'index.html';
             }
         });
 
         function gestionarEstado(data) {
             const estado = data.estadoJuego || 'seleccion';
-            const pantallas = {
-                seleccion: document.getElementById('pantalla-seleccion'),
-                juego: document.getElementById('pantalla-juego'),
-                invitacion: document.getElementById('modal-invitacion'),
-                espera: document.getElementById('msg-esperando-confirmacion')
-            };
+            
+            // Reset de visibilidad
+            Object.values(pantallas).forEach(p => p?.classList.add('oculto'));
 
             if (estado === 'seleccion') {
-                pantallas.seleccion?.classList.remove('oculto');
-                pantallas.juego?.classList.add('oculto');
-                pantallas.invitacion?.classList.add('oculto');
-                pantallas.espera?.classList.add('oculto');
-                const titulo = document.getElementById('titulo-modo');
-                if(titulo) titulo.innerText = "Elige un Modo";
-            }
+                pantallas.seleccion.classList.remove('oculto');
+                document.getElementById('titulo-modo').innerText = "Elige un Modo";
+            } 
             else if (estado === 'solicitando') {
                 if (data.solicitante === rol) {
-                    pantallas.espera?.classList.remove('oculto');
+                    pantallas.esperaConfirmacion.classList.remove('oculto');
                 } else {
-                    const txtModo = document.getElementById('txt-modo-invitacion');
-                    if(txtModo) txtModo.innerText = data.modoActual;
-                    pantallas.invitacion?.classList.remove('oculto');
+                    document.getElementById('txt-modo-invitacion').innerText = data.modoActual.toUpperCase();
+                    pantallas.invitacion.classList.remove('oculto');
                 }
-            }
+            } 
             else if (estado === 'jugando') {
-                pantallas.invitacion?.classList.add('oculto');
-                pantallas.espera?.classList.add('oculto');
-                mostrarJuego(data);
+                pantallas.juego.classList.remove('oculto');
+                mostrarContenidoJuego(data);
             }
         }
 
-        function mostrarJuego(data) {
-            document.getElementById('pantalla-seleccion')?.classList.add('oculto');
-            document.getElementById('pantalla-juego')?.classList.remove('oculto');
+        function mostrarContenidoJuego(data) {
+            document.getElementById('titulo-modo').innerText = "MODO " + data.modoActual.toUpperCase();
             
-            const titulo = document.getElementById('titulo-modo');
-            if(titulo) titulo.innerText = "Modo: " + (data.modoActual || "").toUpperCase();
-            
-            const lista = preguntas[data.modoActual];
-            if(lista) {
-                const index = data.indicePregunta % lista.length;
-                const txtPregunta = document.getElementById('txt-pregunta');
-                if(txtPregunta) txtPregunta.innerText = lista[index];
-            }
+            const lista = bancoPreguntas[data.modoActual];
+            const index = data.indicePregunta % lista.length;
+            document.getElementById('txt-pregunta').innerText = lista[index];
 
+            // Barra de progreso
             const ronda = data.preguntasEnEstaRonda || 1;
-            const barra = document.getElementById('progreso-relleno');
-            if(barra) barra.style.width = (ronda / 10) * 100 + "%";
+            document.getElementById('progreso-relleno').style.width = (ronda / 10) * 100 + "%";
 
+            // Lógica de respuestas
             const miResp = data[`resp_${rol}`] || '';
             const suResp = data[`resp_${otroRol}`] || '';
 
-            const areaResp = document.getElementById('area-respuesta');
-            const mensajeEspera = document.getElementById('mensaje-espera');
-            const verResp = document.getElementById('ver-respuestas');
+            pantallas.areaRespuesta.classList.add('oculto');
+            pantallas.mensajeEsperaPareja.classList.add('oculto');
+            pantallas.verResultados.classList.add('oculto');
 
             if (miResp === '') {
-                areaResp?.classList.remove('oculto');
-                mensajeEspera?.classList.add('oculto');
-                verResp?.classList.add('oculto');
+                pantallas.areaRespuesta.classList.remove('oculto');
+                document.getElementById('mi-respuesta').value = "";
             } else if (suResp === '') {
-                areaResp?.classList.add('oculto');
-                mensajeEspera?.classList.remove('oculto');
-                verResp?.classList.add('oculto');
+                pantallas.mensajeEsperaPareja.classList.remove('oculto');
             } else {
-                areaResp?.classList.add('oculto');
-                mensajeEspera?.classList.add('oculto');
-                verResp?.classList.remove('oculto');
-                const txtPartner = document.getElementById('txt-partner-resp') || document.getElementById('txt-respuesta-partner');
-                if(txtPartner) txtPartner.innerText = suResp;
+                pantallas.verResultados.classList.remove('oculto');
+                document.getElementById('txt-respuesta-partner').innerText = suResp;
             }
         }
 
-        // Exponer funciones al objeto window para los botones del HTML
+        // FUNCIONES GLOBALES
         window.solicitarModo = async (modo) => {
             await updateDoc(partidaRef, { estadoJuego: 'solicitando', modoActual: modo, solicitante: rol });
         };
@@ -106,8 +171,8 @@
         window.responderInvitacion = async (acepta) => {
             if (acepta) {
                 const snap = await getDoc(partidaRef);
-                const data = snap.data();
-                const total = preguntas[data.modoActual].length;
+                const modo = snap.data().modoActual;
+                const total = bancoPreguntas[modo].length;
                 await updateDoc(partidaRef, {
                     estadoJuego: 'jugando',
                     indicePregunta: Math.floor(Math.random() * total),
@@ -120,9 +185,9 @@
         };
 
         window.enviarRespuesta = async () => {
-            const input = document.getElementById('mi-respuesta');
-            if(!input?.value) return alert("Escribe algo amor ❤️");
-            await updateDoc(partidaRef, { [`resp_${rol}`]: input.value });
+            const texto = document.getElementById('mi-respuesta').value.trim();
+            if (!texto) return alert("Escribe algo para tu pareja ❤️");
+            await updateDoc(partidaRef, { [`resp_${rol}`]: texto });
         };
 
         window.siguientePregunta = async () => {
@@ -131,7 +196,7 @@
             const ronda = data.preguntasEnEstaRonda || 1;
 
             if (ronda < 10) {
-                const total = preguntas[data.modoActual].length;
+                const total = bancoPreguntas[data.modoActual].length;
                 await updateDoc(partidaRef, {
                     indicePregunta: Math.floor(Math.random() * total),
                     preguntasEnEstaRonda: ronda + 1,
@@ -144,10 +209,11 @@
                     estadoJuego: 'seleccion',
                     resp_jugador1: '', resp_jugador2: ''
                 });
-                alert("¡Ronda completada! +100 puntos ❤️");
+                alert("¡Ronda terminada! +100 puntos ❤️");
             }
         };
 
         window.salir = () => window.location.href = "dashboard.html";
-    });
-</script>
+    </script>
+</body>
+</html>
