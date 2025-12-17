@@ -2,162 +2,152 @@
     import { db, doc, updateDoc, onSnapshot, getDoc } from './firebase-config.js';
     import { bancoPreguntas } from './preguntas.js';
 
-    // 1. CONFIGURACIÓN INICIAL Y SEGURIDAD
-    const rol = localStorage.getItem('miRol'); 
-    const salaActual = localStorage.getItem('salaActual'); 
-    const otroRol = rol === 'jugador1' ? 'jugador2' : 'jugador1';
-    
-    // Si no hay sesión activa, redirigir al inicio
-    if (!rol || !salaActual) {
-        window.location.href = 'index.html';
-    }
-
-    // Referencia a la sala específica en la colección "salas"
-    const partidaRef = doc(db, "salas", salaActual);
-    const preguntas = bancoPreguntas;
-
-    // --- 2. ESCUCHAR CAMBIOS EN TIEMPO REAL ---
-    // Esto mantiene ambas pantallas sincronizadas
-    onSnapshot(partidaRef, (docSnap) => {
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            gestionarEstado(data);
-        } else {
-            console.error("La sala ya no existe");
+    document.addEventListener('DOMContentLoaded', () => {
+        const rol = localStorage.getItem('miRol'); 
+        const salaActual = localStorage.getItem('salaActual'); 
+        const otroRol = rol === 'jugador1' ? 'jugador2' : 'jugador1';
+        
+        if (!rol || !salaActual) {
             window.location.href = 'index.html';
+            return;
         }
-    });
 
-    // Controla qué pantalla mostrar (Selección de modo, Invitación o Juego)
-    function gestionarEstado(data) {
-        const estado = data.estadoJuego || 'seleccion';
+        const partidaRef = doc(db, "salas", salaActual);
+        const preguntas = bancoPreguntas;
 
-        if (estado === 'seleccion') {
-            document.getElementById('pantalla-seleccion')?.classList.remove('oculto');
-            document.getElementById('pantalla-juego')?.classList.add('oculto');
-            document.getElementById('modal-invitacion')?.classList.add('oculto');
-            document.getElementById('msg-esperando-confirmacion')?.classList.add('oculto');
-            if(document.getElementById('titulo-modo')) 
-                document.getElementById('titulo-modo').innerText = "Elige un Modo";
-        }
-        else if (estado === 'solicitando') {
-            if (data.solicitante === rol) {
-                document.getElementById('msg-esperando-confirmacion')?.classList.remove('oculto');
+        onSnapshot(partidaRef, (docSnap) => {
+            if (docSnap.exists()) {
+                gestionarEstado(docSnap.data());
             } else {
-                if(document.getElementById('txt-modo-invitacion'))
-                    document.getElementById('txt-modo-invitacion').innerText = data.modoActual;
-                document.getElementById('modal-invitacion')?.classList.remove('oculto');
+                window.location.href = 'index.html';
+            }
+        });
+
+        function gestionarEstado(data) {
+            const estado = data.estadoJuego || 'seleccion';
+            const pantallas = {
+                seleccion: document.getElementById('pantalla-seleccion'),
+                juego: document.getElementById('pantalla-juego'),
+                invitacion: document.getElementById('modal-invitacion'),
+                espera: document.getElementById('msg-esperando-confirmacion')
+            };
+
+            if (estado === 'seleccion') {
+                pantallas.seleccion?.classList.remove('oculto');
+                pantallas.juego?.classList.add('oculto');
+                pantallas.invitacion?.classList.add('oculto');
+                pantallas.espera?.classList.add('oculto');
+                const titulo = document.getElementById('titulo-modo');
+                if(titulo) titulo.innerText = "Elige un Modo";
+            }
+            else if (estado === 'solicitando') {
+                if (data.solicitante === rol) {
+                    pantallas.espera?.classList.remove('oculto');
+                } else {
+                    const txtModo = document.getElementById('txt-modo-invitacion');
+                    if(txtModo) txtModo.innerText = data.modoActual;
+                    pantallas.invitacion?.classList.remove('oculto');
+                }
+            }
+            else if (estado === 'jugando') {
+                pantallas.invitacion?.classList.add('oculto');
+                pantallas.espera?.classList.add('oculto');
+                mostrarJuego(data);
             }
         }
-        else if (estado === 'jugando') {
-            document.getElementById('modal-invitacion')?.classList.add('oculto');
-            document.getElementById('msg-esperando-confirmacion')?.classList.add('oculto');
-            mostrarJuego(data);
+
+        function mostrarJuego(data) {
+            document.getElementById('pantalla-seleccion')?.classList.add('oculto');
+            document.getElementById('pantalla-juego')?.classList.remove('oculto');
+            
+            const titulo = document.getElementById('titulo-modo');
+            if(titulo) titulo.innerText = "Modo: " + (data.modoActual || "").toUpperCase();
+            
+            const lista = preguntas[data.modoActual];
+            if(lista) {
+                const index = data.indicePregunta % lista.length;
+                const txtPregunta = document.getElementById('txt-pregunta');
+                if(txtPregunta) txtPregunta.innerText = lista[index];
+            }
+
+            const ronda = data.preguntasEnEstaRonda || 1;
+            const barra = document.getElementById('progreso-relleno');
+            if(barra) barra.style.width = (ronda / 10) * 100 + "%";
+
+            const miResp = data[`resp_${rol}`] || '';
+            const suResp = data[`resp_${otroRol}`] || '';
+
+            const areaResp = document.getElementById('area-respuesta');
+            const mensajeEspera = document.getElementById('mensaje-espera');
+            const verResp = document.getElementById('ver-respuestas');
+
+            if (miResp === '') {
+                areaResp?.classList.remove('oculto');
+                mensajeEspera?.classList.add('oculto');
+                verResp?.classList.add('oculto');
+            } else if (suResp === '') {
+                areaResp?.classList.add('oculto');
+                mensajeEspera?.classList.remove('oculto');
+                verResp?.classList.add('oculto');
+            } else {
+                areaResp?.classList.add('oculto');
+                mensajeEspera?.classList.add('oculto');
+                verResp?.classList.remove('oculto');
+                const txtPartner = document.getElementById('txt-partner-resp') || document.getElementById('txt-respuesta-partner');
+                if(txtPartner) txtPartner.innerText = suResp;
+            }
         }
-    }
 
-    // --- 3. FUNCIONES DE INTERACCIÓN ---
+        // Exponer funciones al objeto window para los botones del HTML
+        window.solicitarModo = async (modo) => {
+            await updateDoc(partidaRef, { estadoJuego: 'solicitando', modoActual: modo, solicitante: rol });
+        };
 
-    window.solicitarModo = async (modo) => {
-        await updateDoc(partidaRef, {
-            estadoJuego: 'solicitando',
-            modoActual: modo,
-            solicitante: rol
-        });
-    };
+        window.responderInvitacion = async (acepta) => {
+            if (acepta) {
+                const snap = await getDoc(partidaRef);
+                const data = snap.data();
+                const total = preguntas[data.modoActual].length;
+                await updateDoc(partidaRef, {
+                    estadoJuego: 'jugando',
+                    indicePregunta: Math.floor(Math.random() * total),
+                    preguntasEnEstaRonda: 1,
+                    resp_jugador1: '', resp_jugador2: ''
+                });
+            } else {
+                await updateDoc(partidaRef, { estadoJuego: 'seleccion', modoActual: '', solicitante: '' });
+            }
+        };
 
-    window.responderInvitacion = async (acepta) => {
-        if (acepta) {
+        window.enviarRespuesta = async () => {
+            const input = document.getElementById('mi-respuesta');
+            if(!input?.value) return alert("Escribe algo amor ❤️");
+            await updateDoc(partidaRef, { [`resp_${rol}`]: input.value });
+        };
+
+        window.siguientePregunta = async () => {
             const snap = await getDoc(partidaRef);
             const data = snap.data();
-            const modo = data.modoActual;
-            const totalPreguntas = preguntas[modo].length;
-            const indexAleatorio = Math.floor(Math.random() * totalPreguntas);
+            const ronda = data.preguntasEnEstaRonda || 1;
 
-            await updateDoc(partidaRef, {
-                estadoJuego: 'jugando',
-                indicePregunta: indexAleatorio,
-                preguntasEnEstaRonda: 1,
-                resp_jugador1: '', 
-                resp_jugador2: ''
-            });
-        } else {
-            await updateDoc(partidaRef, {
-                estadoJuego: 'seleccion', modoActual: '', solicitante: ''
-            });
-        }
-    };
+            if (ronda < 10) {
+                const total = preguntas[data.modoActual].length;
+                await updateDoc(partidaRef, {
+                    indicePregunta: Math.floor(Math.random() * total),
+                    preguntasEnEstaRonda: ronda + 1,
+                    resp_jugador1: '', resp_jugador2: ''
+                });
+            } else {
+                await updateDoc(partidaRef, {
+                    puntosJugador1: (data.puntosJugador1 || 0) + 100,
+                    puntosJugador2: (data.puntosJugador2 || 0) + 100,
+                    estadoJuego: 'seleccion',
+                    resp_jugador1: '', resp_jugador2: ''
+                });
+                alert("¡Ronda completada! +100 puntos ❤️");
+            }
+        };
 
-    function mostrarJuego(data) {
-        document.getElementById('pantalla-seleccion')?.classList.add('oculto');
-        document.getElementById('pantalla-juego')?.classList.remove('oculto');
-        
-        const modoDisplay = data.modoActual ? data.modoActual.toUpperCase() : "";
-        document.getElementById('titulo-modo').innerText = "Modo: " + modoDisplay;
-        
-        const listaPreguntas = preguntas[data.modoActual];
-        const safeIndex = data.indicePregunta % listaPreguntas.length;
-        document.getElementById('txt-pregunta').innerText = listaPreguntas[safeIndex];
-
-        // Barra de progreso
-        let rondaActual = data.preguntasEnEstaRonda || 1;
-        let porcentaje = (rondaActual / 10) * 100;
-        document.getElementById('progreso-relleno').style.width = porcentaje + "%";
-
-        // Lógica de visibilidad de respuestas
-        const miRespuesta = data[`resp_${rol}`] || '';
-        const suRespuesta = data[`resp_${otroRol}`] || '';
-
-        if (miRespuesta === '') {
-            document.getElementById('area-respuesta').classList.remove('oculto');
-            document.getElementById('mensaje-espera').classList.add('oculto');
-            document.getElementById('ver-respuestas').classList.add('oculto');
-            document.getElementById('mi-respuesta').value = "";
-        } else if (suRespuesta === '') {
-            document.getElementById('area-respuesta').classList.add('oculto');
-            document.getElementById('mensaje-espera').classList.remove('oculto');
-            document.getElementById('ver-respuestas').classList.add('oculto');
-        } else {
-            document.getElementById('area-respuesta').classList.add('oculto');
-            document.getElementById('mensaje-espera').classList.add('oculto');
-            document.getElementById('ver-respuestas').classList.remove('oculto');
-            document.getElementById('txt-respuesta-partner').innerText = suRespuesta;
-        }
-    }
-
-    window.enviarRespuesta = async () => {
-        const texto = document.getElementById('mi-respuesta').value;
-        if(!texto) return alert("Escribe algo amor ❤️");
-        await updateDoc(partidaRef, { [`resp_${rol}`]: texto });
-    };
-
-    window.siguientePregunta = async () => {
-        const snap = await getDoc(partidaRef);
-        const data = snap.data();
-        const rondaActual = data.preguntasEnEstaRonda || 1;
-
-        if (rondaActual < 10) {
-            const totalPreguntas = preguntas[data.modoActual].length;
-            const nuevoIndexAleatorio = Math.floor(Math.random() * totalPreguntas);
-
-            await updateDoc(partidaRef, {
-                indicePregunta: nuevoIndexAleatorio,
-                preguntasEnEstaRonda: rondaActual + 1,
-                resp_jugador1: '', 
-                resp_jugador2: ''
-            });
-        } else {
-            const puntosGanados = 100;
-            await updateDoc(partidaRef, {
-                puntosJugador1: (data.puntosJugador1 || 0) + puntosGanados,
-                puntosJugador2: (data.puntosJugador2 || 0) + puntosGanados,
-                estadoJuego: 'seleccion',
-                resp_jugador1: '', 
-                resp_jugador2: ''
-            });
-            alert("¡Ronda completada! Han ganado " + puntosGanados + " puntos ❤️");
-        }
-    };
-
-    window.salir = () => window.location.href = "dashboard.html";
+        window.salir = () => window.location.href = "dashboard.html";
+    });
 </script>
