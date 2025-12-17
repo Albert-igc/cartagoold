@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Pareja - Login</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Estilos rápidos para asegurar que las nuevas secciones se vean bien */
+        .oculto { display: none !important; }
+        .input-codigo {
+            padding: 12px;
+            border-radius: 10px;
+            border: 2px solid #ff4d6d;
+            text-align: center;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            width: 80%;
+            margin-bottom: 15px;
+            outline: none;
+        }
+        .btn-jugador { cursor: pointer; margin: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="background-animado"></div>
+
+    <div class="login-container">
+        <h1 class="titulo-animado">Nuestro Mundo ❤️</h1>
+        <p class="subtitulo">Conectando corazones a distancia</p>
+        
+        <div id="seccion-rol" class="seleccion-jugador">
+            <p style="color: white; margin-bottom: 20px;">¿Quién eres hoy?</p>
+            <button class="btn-jugador" onclick="seleccionarRol('jugador1')">
+                <i class="fa-solid fa-mars"></i> Soy Él
+            </button>
+            <button class="btn-jugador" onclick="seleccionarRol('jugador2')">
+                <i class="fa-solid fa-venus"></i> Soy Ella
+            </button>
+        </div>
+
+        <div id="seccion-sala" class="oculto">
+            <p style="color: white; margin-bottom: 15px;">Crea una sala o únete a la de tu pareja</p>
+            <input type="text" id="inputCodigo" class="input-codigo" placeholder="CÓDIGO AQUÍ">
+            
+            <div class="seleccion-jugador">
+                <button class="btn-jugador" id="btnCrear" style="font-size: 0.9em; background: #ff4d6d;">
+                    Crear Sala
+                </button>
+                <button class="btn-jugador" id="btnUnirse" style="font-size: 0.9em; background: #c9184a;">
+                    Unirme
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="oculto">
+            <div class="spinner"></div> 
+            <span id="loading-text" style="color: white; display: block; margin-top: 15px;">Buscando...</span>
+            <button id="btnCancelar" class="btn-jugador" style="font-size: 0.7em; margin-top: 20px; background: gray;">
+                Cancelar
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, doc, setDoc, getDoc, onSnapshot, updateDoc } from './firebase-config.js';
+
+        let miRol = "";
+        const loading = document.getElementById('loading');
+        const loadingText = document.getElementById('loading-text');
+        const seccionRol = document.getElementById('seccion-rol');
+        const seccionSala = document.getElementById('seccion-sala');
+        const inputCodigo = document.getElementById('inputCodigo');
+
+        // --- 1. VERIFICAR SESIÓN AL ENTRAR ---
+        window.addEventListener('load', async () => {
+            const salaGuardada = localStorage.getItem('salaActual');
+            const rolGuardado = localStorage.getItem('miRol');
+
+            if (salaGuardada && rolGuardado) {
+                miRol = rolGuardado;
+                seccionRol.classList.add('oculto');
+                loading.classList.remove('oculto');
+                loadingText.innerText = "Reconectando a tu sala...";
+
+                const salaRef = doc(db, "salas", salaGuardada);
+                const docSnap = await getDoc(salaRef);
+
+                if (docSnap.exists()) {
+                    // Si la sala está lista, entramos. Si no, esperamos.
+                    const data = docSnap.data();
+                    if (data.estado === "listo") {
+                        window.location.href = "dashboard.html";
+                    } else {
+                        loadingText.innerText = `Código: ${salaGuardada} - Esperando pareja...`;
+                        escucharSala(salaGuardada);
+                    }
+                } else {
+                    limpiarSesion();
+                }
+            }
+        });
+
+        // --- 2. SELECCIONAR ROL ---
+        window.seleccionarRol = (rol) => {
+            miRol = rol;
+            localStorage.setItem('miRol', rol);
+            seccionRol.classList.add('oculto');
+            seccionSala.classList.remove('oculto');
+        };
+
+        // --- 3. CREAR SALA ---
+        document.getElementById('btnCrear').onclick = async () => {
+            const codigo = Math.random().toString(36).substring(2, 8).toUpperCase();
+            inputCodigo.value = codigo;
+            
+            loading.classList.remove('oculto');
+            seccionSala.classList.add('oculto');
+            loadingText.innerText = `Código: ${codigo} - Esperando a tu pareja...`;
+
+            const salaRef = doc(db, "salas", codigo);
+            await setDoc(salaRef, {
+                creador: miRol,
+                estado: "esperando",
+                puntosJugador1: 0,
+                puntosJugador2: 0,
+                turno: 'jugador1',
+                fechaCreacion: new Date()
+            });
+
+            localStorage.setItem('salaActual', codigo);
+            escucharSala(codigo);
+        };
+
+        // --- 4. UNIRSE A SALA ---
+        document.getElementById('btnUnirse').onclick = async () => {
+            const codigo = inputCodigo.value.trim().toUpperCase();
+            if(!codigo) return alert("Introduce el código que te mandó tu pareja");
+
+            const salaRef = doc(db, "salas", codigo);
+            const docSnap = await getDoc(salaRef);
+
+            if (docSnap.exists()) {
+                await updateDoc(salaRef, {
+                    estado: "listo",
+                    parejaConectada: true
+                });
+                localStorage.setItem('salaActual', codigo);
+                loading.classList.remove('oculto');
+                seccionSala.classList.add('oculto');
+                loadingText.innerText = "¡Conectado! Entrando...";
+                setTimeout(() => window.location.href = "dashboard.html", 1000);
+            } else {
+                alert("La sala no existe. Pide a tu pareja que cree una y te pase el código.");
+            }
+        };
+
+        // --- FUNCION PARA ESCUCHAR CAMBIOS ---
+        function escucharSala(codigo) {
+            const salaRef = doc(db, "salas", codigo);
+            onSnapshot(salaRef, (snapshot) => {
+                if (snapshot.exists() && snapshot.data().estado === "listo") {
+                    loadingText.innerText = "¡Pareja conectada! Entrando...";
+                    setTimeout(() => window.location.href = "dashboard.html", 1500);
+                }
+            });
+        }
+
+        function limpiarSesion() {
+            localStorage.removeItem('salaActual');
+            loading.classList.add('oculto');
+            seccionRol.classList.remove('oculto');
+        }
+
+        document.getElementById('btnCancelar').onclick = () => {
+            limpiarSesion();
+            location.reload();
+        };
+    </script>
+</body>
+</html>

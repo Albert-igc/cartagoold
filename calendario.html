@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fechas Importantes</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Estilos Agenda */
+        .form-agregar {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+        }
+
+        input {
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255,255,255,0.8);
+            width: 100%;
+            font-family: 'Poppins', sans-serif;
+            outline: none;
+        }
+
+        .lista-eventos {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .evento-card {
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 5px solid #ff758c;
+            animation: popIn 0.5s ease;
+        }
+
+        .evento-info h4 { margin: 0; font-size: 1.1rem; color: white; }
+        .evento-info small { color: #eee; font-size: 0.9rem; }
+        
+        .badge-dias {
+            background: #fff;
+            color: #ff758c;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-top: 5px;
+            display: inline-block;
+        }
+
+        .btn-borrar {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 5px;
+        }
+        .btn-borrar:hover { color: #ff4757; }
+
+        @keyframes popIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container" style="max-width: 500px;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <button onclick="window.location.href='dashboard.html'" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">
+                <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <h2 style="color:white; margin:0;">Fechas Especiales ❤️</h2>
+            <div style="width: 24px;"></div>
+        </div>
+
+        <div class="form-agregar">
+            <input type="text" id="titulo-evento" placeholder="¿Qué celebramos? (Ej: Aniversario)">
+            <input type="date" id="fecha-evento">
+            <button class="btn-accion" onclick="agregarEvento()" style="cursor:pointer;">Guardar Fecha</button>
+        </div>
+
+        <div class="lista-eventos" id="contenedor-eventos">
+            <div style="text-align:center; margin-top:20px; color:white;">Cargando fechas...</div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { db, doc, updateDoc, onSnapshot, arrayUnion, getDoc } from './firebase-config.js';
+
+        // 1. CONFIGURACIÓN DINÁMICA
+        const salaActual = localStorage.getItem('salaActual');
+        if (!salaActual) window.location.href = 'index.html';
+
+        const partidaRef = doc(db, "salas", salaActual);
+
+        // 2. ESCUCHAR EVENTOS EN TIEMPO REAL
+        onSnapshot(partidaRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const eventos = data.calendario || [];
+                renderizarEventos(eventos);
+            }
+        });
+
+        // 3. MOSTRAR EVENTOS
+        function renderizarEventos(eventos) {
+            const contenedor = document.getElementById('contenedor-eventos');
+            
+            if (eventos.length === 0) {
+                contenedor.innerHTML = '<div style="text-align:center; opacity:0.7; color:white;">No hay fechas guardadas. ¡Agreguen una!</div>';
+                return;
+            }
+
+            // Ordenar por fecha cercana
+            eventos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+            contenedor.innerHTML = eventos.map((evt) => {
+                const diasRestantes = calcularDias(evt.fecha);
+                const textoDias = diasRestantes === 0 ? "¡Es hoy!" : 
+                                 diasRestantes > 0 ? `Faltan ${diasRestantes} días` : 
+                                 "Ya pasó";
+                
+                const estiloPasado = diasRestantes < 0 ? 'opacity: 0.6; border-left-color: #888;' : '';
+
+                return `
+                    <div class="evento-card" style="${estiloPasado}">
+                        <div class="evento-info">
+                            <h4>${evt.titulo}</h4>
+                            <small><i class="fa-regular fa-calendar"></i> ${formatearFecha(evt.fecha)}</small><br>
+                            ${diasRestantes >= 0 ? `<span class="badge-dias">${textoDias}</span>` : `<span style="color:#ddd; font-size:0.8rem;">${textoDias}</span>`}
+                        </div>
+                        <button class="btn-borrar" onclick="borrarEvento('${evt.id}')">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 4. AGREGAR EVENTO
+        window.agregarEvento = async () => {
+            const titulo = document.getElementById('titulo-evento').value;
+            const fecha = document.getElementById('fecha-evento').value;
+
+            if (!titulo || !fecha) return alert("Completa los datos por favor amor ❤️");
+
+            const nuevoEvento = {
+                id: Date.now().toString(),
+                titulo: titulo,
+                fecha: fecha
+            };
+
+            await updateDoc(partidaRef, {
+                calendario: arrayUnion(nuevoEvento)
+            });
+
+            document.getElementById('titulo-evento').value = "";
+            document.getElementById('fecha-evento').value = "";
+        };
+
+        // 5. BORRAR EVENTO
+        window.borrarEvento = async (idBorrar) => {
+            if(!confirm("¿Borrar esta fecha?")) return;
+
+            const snap = await getDoc(partidaRef);
+            const data = snap.data();
+            const listaActual = data.calendario || [];
+
+            const nuevaLista = listaActual.filter(evento => evento.id !== idBorrar);
+
+            await updateDoc(partidaRef, {
+                calendario: nuevaLista
+            });
+        };
+
+        // --- UTILIDADES ---
+        function calcularDias(fechaDestino) {
+            const hoy = new Date();
+            hoy.setHours(0,0,0,0);
+            const destino = new Date(fechaDestino);
+            // Ajuste para evitar errores de zona horaria local
+            const destinoAjustado = new Date(destino.getTime() + destino.getTimezoneOffset() * 60000);
+            destinoAjustado.setHours(0,0,0,0);
+            
+            const diffTime = destinoAjustado - hoy;
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        }
+
+        function formatearFecha(fechaStr) {
+            const partes = fechaStr.split('-');
+            return `${partes[2]}/${partes[1]}/${partes[0]}`;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Nuestro Espacio</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <div class="dashboard-container" id="main-container">
+        
+        <div class="header-puntos">
+            <div id="puntos-el">
+                <i class="fa-solid fa-mars"></i> Él: <span id="score1">0</span>
+            </div>
+            <div id="puntos-ella">
+                <i class="fa-solid fa-venus"></i> Ella: <span id="score2">0</span>
+            </div>
+        </div>
+
+        <div style="text-align: center; color: rgba(255,255,255,0.5); font-size: 0.7em; margin-bottom: 10px;">
+            Sala: <span id="id-sala-display">---</span>
+        </div>
+
+        <div class="racha-badge">
+            <i class="fa-solid fa-fire"></i> Racha: <span id="racha-val">0</span> días
+        </div>
+
+        <div class="mascota-area" onclick="tocarMascota()">
+            <div class="burbuja-mensaje" id="mensaje-burbuja">¡Te extrañaba! ❤️</div>
+            <img src="https://cdn-icons-png.flaticon.com/512/616/616408.png" alt="Mascota" class="mascota-img" id="mascota">
+        </div>
+
+        <h2>¿Qué haremos hoy?</h2>
+
+        <div class="menu-grid">
+            <div class="card-menu" onclick="irA('juego.html')">
+                <i class="fa-solid fa-gamepad" style="color: #ff7eb3;"></i>
+                <span>Jugar</span>
+            </div>
+            <div class="card-menu" onclick="irA('tienda.html')">
+                <i class="fa-solid fa-store" style="color: #78ffd6;"></i>
+                <span>Tienda</span>
+            </div>
+            <div class="card-menu" onclick="irA('calendario.html')">
+                <i class="fa-regular fa-calendar-heart" style="color: #ffe66d;"></i>
+                <span>Fechas</span>
+            </div>
+            <div class="card-menu" onclick="cerrarSesion()">
+                <i class="fa-solid fa-door-open"></i>
+                <span>Salir</span>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, doc, onSnapshot, updateDoc } from './firebase-config.js';
+
+        // 1. IDENTIFICAR USUARIO Y SALA
+        const miRol = localStorage.getItem('miRol');
+        const salaActual = localStorage.getItem('salaActual');
+
+        // Seguridad: Si no hay rol o no hay sala, volver al login
+        if(!miRol || !salaActual) {
+            window.location.href = 'index.html';
+        } else {
+            document.getElementById('id-sala-display').innerText = salaActual;
+        }
+
+        // 2. ESCUCHAR LA SALA DINÁMICA EN TIEMPO REAL
+        // Cambiamos "juego/pareja_unica" por "salas/salaActual"
+        const partidaRef = doc(db, "salas", salaActual);
+
+        onSnapshot(partidaRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // Sincronizamos los puntos de la sala específica
+                document.getElementById('score1').innerText = data.puntosJugador1 || 0;
+                document.getElementById('score2').innerText = data.puntosJugador2 || 0;
+                document.getElementById('racha-val').innerText = data.racha || 0;
+            } else {
+                console.error("La sala fue eliminada.");
+                alert("La sala ya no existe.");
+                cerrarSesion();
+            }
+        });
+
+        // Lógica de la Mascota (Mantenida igual)
+        const mensajesAmor = [
+            "¡Eres mi persona favorita! ❤️",
+            "¿Sabías que te amo mucho?",
+            "¡Sigue sumando puntos!",
+            "Hoy te ves increíble ✨",
+            "Un besito para ti 💋",
+            "¡Vamos por esa racha!"
+        ];
+
+        window.tocarMascota = () => {
+            const burbuja = document.getElementById('mensaje-burbuja');
+            const mascota = document.getElementById('mascota');
+            mascota.style.transform = "scale(0.9) rotate(5deg)";
+            setTimeout(() => mascota.style.transform = "scale(1) rotate(0deg)", 200);
+
+            const mensajeRandom = mensajesAmor[Math.floor(Math.random() * mensajesAmor.length)];
+            burbuja.innerText = mensajeRandom;
+            burbuja.classList.add('visible');
+
+            setTimeout(() => {
+                burbuja.classList.remove('visible');
+            }, 3000);
+        };
+
+        // Navegación
+        window.irA = (url) => {
+            window.location.href = url;
+        }
+
+        // 3. CERRAR SESIÓN (Limpia la sala para poder crear otra)
+        window.cerrarSesion = () => {
+            if(confirm("¿Quieres salir de la sala actual?")) {
+                localStorage.removeItem('miRol');
+                localStorage.removeItem('salaActual');
+                window.location.href = 'index.html';
+            }
+        }
+
+        document.addEventListener('click', (e) => {
+            if(e.target.id === 'main-container') {
+                document.getElementById('mensaje-burbuja').classList.remove('visible');
+            }
+        });
+    </script>
+</body>
+</html>

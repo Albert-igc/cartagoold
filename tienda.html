@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tienda de Pareja</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Estilos exclusivos de la tienda */
+        .header-tienda {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+
+        .monedas {
+            color: #ffd700;
+            font-weight: bold;
+            font-size: 1.2rem;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .grid-productos {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .card-producto {
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 15px;
+            text-align: center;
+            transition: 0.3s;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .card-producto:hover {
+            transform: translateY(-5px);
+            background: rgba(255,255,255,0.25);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .icono-producto {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: var(--text);
+        }
+
+        .precio-badge {
+            background: rgba(0,0,0,0.3);
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin: 10px 0;
+            display: inline-block;
+            color: #ffd700;
+        }
+
+        .btn-comprar {
+            background: linear-gradient(45deg, #ff758c, #ff7eb3);
+            border: none;
+            padding: 8px;
+            width: 100%;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-comprar:active { transform: scale(0.95); }
+
+        .historial-area {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .item-historial {
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 10px 0;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container" style="max-width: 500px;">
+        
+        <div class="header-tienda">
+            <button onclick="window.location.href='dashboard.html'" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;">
+                <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <div class="monedas">
+                <i class="fa-solid fa-coins"></i> <span id="mis-puntos">0</span> pts
+            </div>
+        </div>
+
+        <h2 style="margin-bottom: 15px; text-align: center; color: white;">Tienda de Deseos ✨</h2>
+
+        <div class="grid-productos" id="lista-productos"></div>
+
+        <h3 style="margin-bottom: 10px; color: white;"><i class="fa-solid fa-receipt"></i> Canjeados recientemente</h3>
+        <div class="historial-area" id="lista-historial">
+            <div style="text-align: center; color: #ccc;">Cargando historial...</div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { db, doc, updateDoc, onSnapshot, getDoc, arrayUnion } from './firebase-config.js';
+
+        // 1. CONFIGURACIÓN DINÁMICA
+        const rol = localStorage.getItem('miRol');
+        const salaActual = localStorage.getItem('salaActual');
+
+        if (!rol || !salaActual) window.location.href = 'index.html';
+
+        const partidaRef = doc(db, "salas", salaActual);
+        
+        const productos = [
+            { nombre: "Masaje de 15 min", precio: 500, icono: "fa-hands-bubbles" },
+            { nombre: "Cena donde yo elija", precio: 800, icono: "fa-utensils" },
+            { nombre: "Vale por un beso", precio: 100, icono: "fa-kiss-wink-heart" },
+            { nombre: "Noche de Pelis", precio: 400, icono: "fa-film" },
+            { nombre: "Desayuno en la cama", precio: 600, icono: "fa-mug-hot" },
+            { nombre: "Me perdonas una", precio: 1000, icono: "fa-hand-holding-heart" },
+            { nombre: "Vale por un helado", precio: 200, icono: "fa-ice-cream" },
+            { nombre: "Día sin peleas", precio: 300, icono: "fa-peace" }
+        ];
+
+        // 2. Renderizar productos
+        const grid = document.getElementById('lista-productos');
+        grid.innerHTML = productos.map((prod, index) => `
+            <div class="card-producto">
+                <i class="fa-solid ${prod.icono} icono-producto"></i>
+                <b style="color:white;">${prod.nombre}</b>
+                <div class="precio-badge">${prod.precio} pts</div>
+                <button class="btn-comprar" onclick="comprar(${index})">Canjear</button>
+            </div>
+        `).join('');
+
+        let misPuntosActuales = 0;
+
+        // 3. Escuchar Puntos y Historial
+        onSnapshot(partidaRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const puntosPropiedad = rol === 'jugador1' ? 'puntosJugador1' : 'puntosJugador2';
+                misPuntosActuales = data[puntosPropiedad] || 0;
+                document.getElementById('mis-puntos').innerText = misPuntosActuales;
+
+                renderizarHistorial(data.historialCompras || []);
+            }
+        });
+
+        // 4. Función de Compra
+        window.comprar = async (index) => {
+            const prod = productos[index];
+
+            if (misPuntosActuales >= prod.precio) {
+                const confirmar = confirm(`¿Quieres canjear "${prod.nombre}" por ${prod.precio} puntos?`);
+                if (confirmar) {
+                    const quien = rol === 'jugador1' ? 'Él' : 'Ella';
+                    const nuevoItem = {
+                        msg: `${quien} canjeó: ${prod.nombre}`,
+                        fecha: new Date().toLocaleDateString()
+                    };
+
+                    const puntosPropiedad = rol === 'jugador1' ? 'puntosJugador1' : 'puntosJugador2';
+
+                    try {
+                        await updateDoc(partidaRef, {
+                            [puntosPropiedad]: misPuntosActuales - prod.precio,
+                            historialCompras: arrayUnion(nuevoItem)
+                        });
+                        alert("¡Deseo canjeado! Prepárate para disfrutarlo ❤️");
+                    } catch (error) {
+                        alert("Error al procesar el canje. Intenta de nuevo.");
+                    }
+                }
+            } else {
+                alert("¡Necesitas más puntos! Sigue jugando con tu pareja para ganar más. ❤️");
+            }
+        };
+
+        function renderizarHistorial(lista) {
+            const divHistorial = document.getElementById('lista-historial');
+            if (lista.length === 0) {
+                divHistorial.innerHTML = '<div style="text-align: center; color: #eee;">Aún no hay canjes.</div>';
+                return;
+            }
+
+            divHistorial.innerHTML = lista.slice().reverse().map(item => `
+                <div class="item-historial">
+                    <span>${item.msg}</span>
+                    <small style="opacity: 0.7;">${item.fecha}</small>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
